@@ -1,0 +1,3 @@
+[console_scripts]
+spawn_actors = gazebo_actor_spawner.gazebo_actor_relay:main
+
