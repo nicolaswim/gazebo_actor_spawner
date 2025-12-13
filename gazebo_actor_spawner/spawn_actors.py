@@ -2,52 +2,139 @@
 import sys
 import os
 import subprocess
-from ament_index_python.packages import get_package_share_directory
+import math
 
-def generate_world_file(filepath):
+def generate_linear_trajectory(x_start, y_start, direction_deg, speed, duration=20.0):
+    waypoints = []
+    t = 0.0
+    dt = 0.5 
+    
+    yaw = math.radians(direction_deg)
+    vel_x = speed * math.cos(yaw)
+    vel_y = speed * math.sin(yaw)
+
+    current_x = x_start
+    current_y = y_start
+
+    while t <= duration:
+        waypoints.append(f"""
+           <waypoint>
+              <time>{t:.2f}</time>
+              <pose>{current_x:.2f} {current_y:.2f} 0 0 0 {yaw:.2f}</pose>
+           </waypoint>""")
+        
+        current_x += vel_x * dt
+        current_y += vel_y * dt
+        t += dt
+
+    return "".join(waypoints)
+
+def generate_actor_xml(name, x, y, direction, speed):
+    trajectory_xml = generate_linear_trajectory(x, y, direction, speed)
+    
+    skin_file = "model://walking_human/meshes/moonwalk.dae"
+    anim_file = "model://walking_human/meshes/walk.dae"
+    
+    return f"""
+    <actor name="{name}">
+      <pose>{x} {y} 0 0 0 0</pose>
+      <skin>
+        <filename>{skin_file}</filename>
+        <scale>1.0</scale>
+      </skin>
+      <animation name="walking">
+        <filename>{anim_file}</filename>
+        <scale>1.0</scale>
+        <interpolate_x>true</interpolate_x>
+      </animation>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walking">
+           {trajectory_xml}
+        </trajectory>
+      </script>
+    </actor>
     """
-    Generates a basic SDF world file so Gazebo has something to load.
-    **IMPORTANT:** Restore your specific actor/trajectory generation logic here.
-    """
-    sdf_content = """<?xml version="1.0" ?>
-<sdf version="1.6">
-  <world name="actor_world">
-    <include>
-      <uri>model://sun</uri>
-    </include>
-    <include>
-      <uri>model://ground_plane</uri>
-    </include>
-    </world>
-</sdf>
-"""
-    with open(filepath, 'w') as f:
-        f.write(sdf_content)
 
 def main():
-    # 1. Define the temporary path explicitly
-    temp_world_path = "/tmp/generated_actor_world.sdf"
-
-    # 2. Generate the world file (so Gazebo doesn't fail loading a missing file)
-    # Restore your user input logic here if needed
-    print(f"Generating world at {temp_world_path}...")
-    generate_world_file(temp_world_path)
+    print("\n=== Gazebo Actor Spawner (World Plugin Fix) ===")
     
-    print(f"World saved. Launching...")
+    try:
+        num_humans = int(input("Amount of actors? (e.g. 3): "))
+        direction_deg = float(input("Direction (Degrees)? (0=East, 90=North): "))
+        speed = float(input("Speed (m/s)? (e.g. 1.0): "))
+    except ValueError:
+        print("Invalid input. Using defaults: 1 actor, 0 degrees, 1.0 m/s.")
+        num_humans = 1
+        direction_deg = 0.0
+        speed = 1.0
 
-    # 3. Construct the command
+    actors_xml = []
+    
+    for i in range(num_humans):
+        start_x = 0.0
+        start_y = i * 2.0 
+        xml = generate_actor_xml(f"human_{i+1}", start_x, start_y, direction_deg, speed)
+        actors_xml.append(xml)
+
+    joined_actors = "\n".join(actors_xml)
+    
+    debug_box = """
+    <model name="debug_box">
+      <pose>-2 0 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.5 0.5 0.5</size></box></geometry>
+          <material><script><name>Gazebo/Red</name></script></material>
+        </visual>
+      </link>
+    </model>
+    """
+
+    # --- THE FIX: Inject libgazebo_ros_state.so here ---
+    # This plugin MUST be inside the <world> tag to work.
+    ros_state_plugin = """
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/</namespace>
+        <remapping>model_states:=model_states</remapping>
+      </ros>
+      <update_rate>10.0</update_rate>
+    </plugin>
+    """
+
+    sdf_content = f"""<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="actor_world">
+    {ros_state_plugin}
+    <include><uri>model://sun</uri></include>
+    <include><uri>model://ground_plane</uri></include>
+    {debug_box}
+    {joined_actors}
+  </world>
+</sdf>
+"""
+
+    temp_world_path = "/tmp/generated_actor_world.sdf"
+    with open(temp_world_path, 'w') as f:
+        f.write(sdf_content)
+
+    print(f"\nSaved world to {temp_world_path}")
+    print("Launching...")
+
     cmd = [
         "ros2", "launch", "gazebo_actor_spawner", "view_actors.launch.py",
         f"world_path:={temp_world_path}"
     ]
 
-    # 4. Execute with full system environment (Launch file handles isolation)
     try:
         subprocess.run(cmd, check=True, env=os.environ)
     except KeyboardInterrupt:
         pass
     except subprocess.CalledProcessError as e:
-        print(f"Process failed with error: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
