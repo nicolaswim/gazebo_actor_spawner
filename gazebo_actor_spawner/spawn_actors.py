@@ -61,20 +61,30 @@ def main():
     print("\n=== Gazebo Actor Spawner (World Plugin Fix) ===")
     
     try:
+        # 1. Ask for the amount of humans ONCE
         num_humans = int(input("Amount of actors? (e.g. 3): "))
-        direction_deg = float(input("Direction (Degrees)? (0=East, 90=North): "))
-        speed = float(input("Speed (m/s)? (e.g. 1.0): "))
     except ValueError:
-        print("Invalid input. Using defaults: 1 actor, 0 degrees, 1.0 m/s.")
+        print("Invalid input. Defaulting to 1 actor.")
         num_humans = 1
-        direction_deg = 0.0
-        speed = 1.0
 
     actors_xml = []
     
+    # 2. Loop through the amount and ask details for EACH human
     for i in range(num_humans):
+        print(f"\n--- Configuration for Human {i+1} ---")
+        try:
+            # We ask for direction and speed inside the loop now
+            direction_deg = float(input(f"Direction for Human {i+1} (0=East, 90=North): "))
+            speed = float(input(f"Speed for Human {i+1} (m/s): "))
+        except ValueError:
+            print(f"Invalid input for Human {i+1}. Using defaults: 0 deg, 1.0 m/s.")
+            direction_deg = 0.0
+            speed = 1.0
+            
         start_x = 0.0
         start_y = i * 2.0 
+        
+        # Generate the XML using these specific values
         xml = generate_actor_xml(f"human_{i+1}", start_x, start_y, direction_deg, speed)
         actors_xml.append(xml)
 
@@ -93,8 +103,6 @@ def main():
     </model>
     """
 
-    # --- THE FIX: Inject libgazebo_ros_state.so here ---
-    # This plugin MUST be inside the <world> tag to work.
     ros_state_plugin = """
     <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
       <ros>
