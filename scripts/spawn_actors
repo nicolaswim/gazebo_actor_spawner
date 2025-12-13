@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-exec python3 -m gazebo_actor_spawner.gazebo_actor_relay "$@"

@@ -1,82 +1,90 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, ExecuteProcess, RegisterEventHandler, EmitEvent
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch.events import Shutdown
+from launch.event_handlers import OnProcessExit
 
 def generate_launch_description():
-
     pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
     pkg_share_dir = get_package_share_directory('gazebo_actor_spawner')
-    
-    # --- Arguments ---
-    world_path_arg = DeclareLaunchArgument(
-        'world_path',
-        default_value=os.path.join(pkg_share_dir, 'worlds', 'empty.sdf'),
-        description='Path to the Gazebo world file'
-    )
-    
-    rviz_config_arg = DeclareLaunchArgument(
-        'rviz_config',
-        default_value=os.path.join(pkg_share_dir, 'rviz', 'actor_view.rviz'),
-        description='Path to the RViz configuration file'
-    )
-    
-    urdf_file_path = os.path.join(pkg_share_dir, 'urdf', 'dummy_robot.urdf')
-    with open(urdf_file_path, 'r') as f:
-        robot_description_content = f.read()
 
-    # --- Nodes ---
-    
-    # Gazebo
-    gazebo_launch = IncludeLaunchDescription(
+    # --- 1. Define Environments ---
+
+    # Gazebo Client Environment (The "Sanitized" Zone)
+    # We explicitly strip variables that cause Ogre/Gazebo to crash.
+    gz_client_env = os.environ.copy()
+    gz_client_env['QT_QPA_PLATFORM'] = 'xcb' # Force X11
+    if 'LD_PRELOAD' in gz_client_env:
+        del gz_client_env['LD_PRELOAD']      # Ensure RViz fix doesn't poison Gazebo
+    if 'WAYLAND_DISPLAY' in gz_client_env:
+        del gz_client_env['WAYLAND_DISPLAY'] # Prevent Ogre from seeing Wayland
+
+    # RViz Environment (The "Patched" Zone)
+    # We explicitly inject the library RViz needs to fix the symbol lookup error.
+    rviz_env = os.environ.copy()
+    rviz_env['LD_PRELOAD'] = '/lib/x86_64-linux-gnu/libpthread.so.0'
+
+    # --- 2. Launch Actions ---
+
+    # A. Gazebo Server (Headless Physics)
+    # We use the standard launch file but set gui=false. 
+    # gzserver is robust and doesn't need the graphical environment hacks.
+    gazebo_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
         ),
-        launch_arguments={'world': LaunchConfiguration('world_path')}.items()
+        launch_arguments={
+            'world': LaunchConfiguration('world_path'),
+            'gui': 'false' # We launch the client manually below
+        }.items()
     )
-    
-    # Robot State Publisher (for dummy robot)
-    robot_state_publisher_node = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        name='robot_state_publisher',
+
+    # B. Gazebo Client (Manual GUI Launch)
+    # This runs gzclient with our sanitized environment.
+    gazebo_client = ExecuteProcess(
+        cmd=['gzclient', '--verbose'], 
         output='screen',
-        parameters=[{
-            'use_sim_time': True,
-            'robot_description': robot_description_content
-        }]
+        env=gz_client_env
     )
-    
-    # RViz
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
+
+    # C. RViz (Manual Launch)
+    # This runs RViz with the patched LD_PRELOAD environment.
+    rviz_action = ExecuteProcess(
+        cmd=[
+            '/opt/ros/humble/bin/rviz2',
+            '-d', LaunchConfiguration('rviz_config'),
+            '--ros-args', '-p', 'use_sim_time:=true'
+        ],
         output='screen',
-        arguments=['-d', LaunchConfiguration('rviz_config')],
-        parameters=[{'use_sim_time': True}]
+        env=rviz_env
     )
+
+    # --- 3. Lifecycle Management ---
     
-    # Gazebo Actor Relay
-    actor_relay_node = Node(
-        package='gazebo_actor_spawner',
-        executable='gazebo_actor_relay',
-        name='gazebo_actor_relay',
-        output='screen',
-        parameters=[{
-            'use_sim_time': True,
-            'planner_frame': 'odom' # This is the "Fixed Frame"
-        }]
+    # Ensure that if the user closes the Gazebo window, the whole script stops
+    # (Mimics standard Gazebo behavior)
+    shutdown_on_gz_exit = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=gazebo_client,
+            on_exit=[EmitEvent(event=Shutdown())]
+        )
     )
 
     return LaunchDescription([
-        world_path_arg,
-        rviz_config_arg,
-        gazebo_launch,
-        robot_state_publisher_node,
-        rviz_node,
-        actor_relay_node
+        DeclareLaunchArgument(
+            'world_path',
+            description='Path to the SDF world file'
+        ),
+        DeclareLaunchArgument(
+            'rviz_config',
+            default_value=os.path.join(pkg_share_dir, 'rviz', 'config.rviz'),
+            description='Path to RViz config'
+        ),
+        gazebo_server,
+        gazebo_client,
+        rviz_action,
+        shutdown_on_gz_exit
     ])

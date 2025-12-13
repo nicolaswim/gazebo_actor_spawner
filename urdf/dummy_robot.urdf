@@ -3,12 +3,15 @@
   <link name="base_link">
     <visual>
       <geometry>
-        <box size="0.001 0.001 0.001" />
+        <box size="0.1 0.1 0.1"/>
       </geometry>
+      <material name="blue">
+        <color rgba="0 0 1 1"/>
+      </material>
     </visual>
   </link>
-  <link name="odom" />
-  <joint name="odom_to_base_link" type="fixed">
+  <link name="odom"/>
+  <joint name="odom_to_base" type="fixed">
     <parent link="odom"/>
     <child link="base_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
