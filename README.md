@@ -3,14 +3,20 @@
 
 ![ROS 2 Humble](https://img.shields.io/badge/ROS%202-Humble-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
+## Gallery
+| Gazebo Classic (Source) | RViz2 (Visualization) |
+| :---: | :---: |
+| ![Gazebo View](visuals/gazebo.png) | ![RViz View](visuals/rviz.png) |
+> *Left: Animated actors in Gazebo. Right: The same actors rendered as dynamic cylinders in RViz.*
+
 ## Overview
-Gazebo Classic can spawn animated humans, but RViz2 has no native way to render those actors or follow their transforms. `gazebo_actor_relay` closes that gap by listening to `/model_states`, filtering out `human_*` actors, and publishing both visualization markers and TF transforms so operators can see every actor inside RViz just like any other robot.
+Gazebo Classic can spawn animated humans, but RViz2 has no native way to render those actors or follow their transforms. `gazebo_actor_relay` closes that gap by listening to `/model_states`, filtering out `human_*` actors, and publishing both visualization markers and TF transforms. This allows operators to visualize pedestrian traffic and obstacles in RViz just like any other robot component.
 
 ## Key Features
-- **Dynamic Visuals** – Every actor is rendered as an easily visible green cylinder, making them stand out against the rest of the scene.
-- **Velocity-Based Scaling** – Heights change with speed via `sqrt(vx^2 + vy^2)`; stationary actors remain 1.0 m tall while fast ones tower above.
-- **Orientation Locking** – Cylinders stay perfectly upright to eliminate the common "laying down" bug from Gazebo.
-- **TF Broadcasting** – Emits a dedicated TF frame per actor so planners, perception nodes, and RViz overlays stay synchronized.
+- **Dynamic Visuals** – Every actor is rendered as an easily visible **green cylinder**, ensuring high contrast against map data.
+- **Velocity-Based Scaling** – Marker height provides immediate visual feedback on speed. Stationary actors appear as 1.0 m markers, while moving actors grow taller based on velocity (`height = sqrt(vx^2 + vy^2)`), allowing operators to instinctively gauge motion in the costmap.
+- **Orientation Locking** – Forces marker orientation to align with the World Z-axis, correcting the common simulation bug where actors appear to "lay down" or slide horizontally.
+- **TF Broadcasting** – Publishes a dedicated TF frame for every actor (using the actor's name, e.g., `human_1`) so planners and perception nodes can track them directly.
 
 ## Architecture
 | Stage | Description |
@@ -23,26 +29,5 @@ Gazebo Classic can spawn animated humans, but RViz2 has no native way to render 
 ```bash
 # From your ROS 2 workspace
 cd ~/ros2_ws
-colcon build --packages-select gazebo_actor_relay
+colcon build --packages-select gazebo_actor_spawner
 source install/setup.bash
-```
-
-## Usage
-Make sure Gazebo Classic is running with actors already spawned. Then start the relay:
-```bash
-ros2 run gazebo_actor_relay gazebo_actor_relay
-```
-Open RViz2, add a MarkerArray display for `/actor_markers`, and TF will automatically stream.
-
-## Configuration / Parameters
-| Name | Default | Description |
-| --- | --- | --- |
-| `planner_frame` | `"world"` | Frame ID used for marker headers and TF parent frames. |
-
-## Dependencies
-- `rclpy`
-- `gazebo_msgs`
-- `visualization_msgs`
-- `geometry_msgs`
-- `tf2_ros`
-
