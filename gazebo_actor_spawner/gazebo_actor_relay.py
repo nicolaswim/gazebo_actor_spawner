@@ -9,6 +9,7 @@ from geometry_msgs.msg import Vector3, TransformStamped
 from std_msgs.msg import ColorRGBA
 from tf2_ros import TransformBroadcaster
 import re
+import math
 
 class GazeboActorRelay(Node):
     def __init__(self):
@@ -17,8 +18,7 @@ class GazeboActorRelay(Node):
         self.declare_parameter('planner_frame', 'world')
         self.planner_frame = self.get_parameter('planner_frame').value
         
-        # Matches 'human_1', 'human_2' from the new spawner script
-        self.actor_regex = re.compile(r"human_\d+")
+        self.actor_regex = re.compile(r"human_.*")
         
         self.tf_broadcaster = TransformBroadcaster(self)
         self.marker_array_pub = self.create_publisher(MarkerArray, '/actor_markers', 10)
@@ -27,14 +27,14 @@ class GazeboActorRelay(Node):
             ModelStates, '/model_states', self.model_states_callback, QoSProfile(depth=10)
         )
         
-        self.get_logger().info(f"Relay Started. Listening for 'human_X'...")
+        self.get_logger().info(f"Relay Started. Listening for 'human_...'")
 
     def model_states_callback(self, msg):
         now = self.get_clock().now()
         marker_array = MarkerArray()
         transforms = []
 
-        # 1. DELETE OLD MARKERS (Clear previous frame)
+        # 1. DELETE OLD MARKERS
         delete_marker = Marker()
         delete_marker.action = Marker.DELETEALL
         delete_marker.header.frame_id = self.planner_frame
@@ -53,23 +53,45 @@ class GazeboActorRelay(Node):
             count += 1
             index = name_to_index[actor_name]
             pose = msg.pose[index]
+            twist = msg.twist[index] 
 
-            # 2. VISUAL MARKER (Green Box)
+            # --- CALCULATE HEIGHT ---
+            vx = twist.linear.x
+            vy = twist.linear.y
+            speed = math.sqrt(vx**2 + vy**2)
+            cylinder_height = speed if speed > 0.1 else 1.0
+            
+            # --- VISUAL MARKER ---
             marker = Marker()
             marker.header.frame_id = self.planner_frame
             marker.header.stamp = now.to_msg()
             marker.ns = "humans"
             marker.id = index
-            marker.type = Marker.CUBE
+            marker.type = Marker.CYLINDER
             marker.action = Marker.ADD
-            marker.pose = pose
-            marker.scale = Vector3(x=0.5, y=0.5, z=1.8)
-            marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=0.8)
+            
+            # POSITION
+            marker.pose.position.x = pose.position.x
+            marker.pose.position.y = pose.position.y
+            marker.pose.position.z = pose.position.z + (cylinder_height / 2.0)
+            
+            # ORIENTATION: Force Upright (Identity Quaternion)
+            marker.pose.orientation.x = 0.0
+            marker.pose.orientation.y = 0.0
+            marker.pose.orientation.z = 0.0
+            marker.pose.orientation.w = 1.0
+
+            # SCALE
+            marker.scale = Vector3(x=0.4, y=0.4, z=cylinder_height) 
+            
+            # --- COLOR CHANGED TO GREEN ---
+            # r=0, g=1, b=0 is pure green. a=0.8 is 80% opacity.
+            marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=0.8) 
+            
             marker.lifetime = Duration(seconds=0.2).to_msg()
             marker_array.markers.append(marker)
 
-            # 3. TF TRANSFORM
-            # We map human_1 -> human_1 directly (No name changing)
+            # --- TF TRANSFORM ---
             t = TransformStamped()
             t.header.stamp = now.to_msg()
             t.header.frame_id = self.planner_frame
@@ -80,12 +102,9 @@ class GazeboActorRelay(Node):
             t.transform.rotation = pose.orientation
             transforms.append(t)
 
-        # Publish
         if count > 0:
             self.marker_array_pub.publish(marker_array)
             self.tf_broadcaster.sendTransform(transforms)
-            # DEBUG: Uncomment the line below if you want to see spam in the console
-            # self.get_logger().info(f"Published TF for {count} humans")
 
 def main(args=None):
     rclpy.init(args=args)
