@@ -25,6 +25,26 @@ Gazebo Classic can spawn animated humans, but RViz2 has no native way to render 
 | **Logic** | Regex filter (`human_*`) → planar velocity magnitude → marker + TF construction |
 | **Output** | `/actor_markers` (`visualization_msgs/MarkerArray`) for RViz plus `/tf` transforms |
 
+```mermaid
+graph TD
+    subgraph Phase_1_Configuration [Phase 1: Procedural Generation]
+        User[User Input<br>Count/Speed/Direction] --> Gen[spawn_actors.py<br>XML Assembly]
+        Gen --> Write[File I/O<br>Write /tmp/generated_actor_world.sdf]
+    end
+
+    subgraph Phase_2_Simulation [Phase 2: Simulation Boot]
+        Write --> Launch[ros2 launch<br>view_actors.launch.py]
+        Launch --> GZ[Gazebo Server<br>Loads .sdf from /tmp]
+    end
+
+    subgraph Phase_3_Runtime [Phase 3: Semantic Injection]
+        GZ -- /model_states --> Relay[gazebo_actor_relay]
+        Relay -- Logic: Regex Filter --> Rect[State Rectification]
+        Rect -- /tf --> TF[Navigation Stack]
+        Rect -- /actor_markers --> RViz[Visualization]
+    end
+```
+
 ## Installation & Build
 ```bash
 # From your ROS 2 workspace
