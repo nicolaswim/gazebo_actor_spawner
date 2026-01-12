@@ -1,18 +1,1 @@
-# Python build artifacts
-__pycache__/
-*.py[cod]
-*.so
-*.egg-info/
-
-# ROS/colcon build outputs
-build/
-install/
-log/
-devel/
-.colcon/
-
-# Editors and tooling
-.vscode/
-.idea/
-*.swp
-*.swo
+APPENDIX_D_SOFTWARE_ARTIFACT.md
